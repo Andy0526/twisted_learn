@@ -1,13 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # author:lewsan
+import optparse
 
+import sys
 from twisted.internet import reactor
 from twisted.internet.protocol import Protocol, ClientFactory, connectionDone
-
-import traceback
-import optparse
-import time
 
 
 def parse_args():
@@ -54,69 +52,60 @@ for that to work.
 
 class PoetryProtocol(Protocol):
     poem = ''
-    task_no = 0
-    first_call = True
 
     def dataReceived(self, data):
-        if self.first_call:
-            traceback.print_exc()
-        self.first_call = False
         self.poem += data
-        msg = 'Task {}: got {} bytes of poetry from {}'.format(self.task_no, len(data), self.transport.getPeer())
-        print msg
 
     def connectionLost(self, reason=connectionDone):
-        traceback.print_exc()
         self.poemReceived(self.poem)
 
     def poemReceived(self, poem):
-        self.factory.poem_finished(self.task_no, poem)
+        self.factory.poem_finished(poem)
 
 
 class PoetryClientFactory(ClientFactory):
     protocol = PoetryProtocol
-    task_num = 1
-    first_call = True
 
-    def __init__(self, poetry_count):
-        self.poetry_count = poetry_count
-        self.poems = {}
+    def __init__(self, callback, errback):
+        self.callback = callback
+        self.errback = errback
 
-    def buildProtocol(self, addr):
-        if self.first_call:
-            traceback.print_exc()
-        self.first_call = False
-        protocol_obj = ClientFactory.buildProtocol(addr)
-        protocol_obj.task_no = self.task_num
-        self.task_num += 1
-        return protocol_obj
-
-    def poem_finished(self, poem_no=None, poem=None):
-        if poem_no:
-            self.poems[poem_no] = poem
-        self.poetry_count -= 1
-        if self.poetry_count <= 0:
-            self.report()
-            reactor.stop()
-
-    def report(self):
-        for poem_no, poem in self.poems.iteritems():
-            print 'Task {}: {} bytes of poetry, \ncontent:{}'.format(poem_no, len(poem), poem)
+    def poem_finished(self, poem):
+        self.callback(poem)
 
     def clientConnectionFailed(self, connector, reason):
-        print 'Failed to connect to:{}'.format(connector.getDestination())
-        self.poem_finished()
+        self.errback(reason)
+
+
+def get_poetry(host, port, callback, errback):
+    factory = PoetryClientFactory(callback, errback)
+    reactor.connectTCP(host, port, factory)
 
 
 def poetry_main():
     addresses = parse_args()
-    start = time.time()
-    factory = PoetryClientFactory(len(addresses))
-    for address in addresses:
-        host, port = address
-        reactor.connectTCP(host, port, factory)
+    poems = []
+    errors = []
+
+    def get_poem(poem):
+        poems.append(poem)
+        poem_done()
+
+    def poem_failed(err):
+        print >> sys.stderr, 'Poem failed', err
+        errors.append(err)
+        poem_done()
+
+    def poem_done():
+        if len(poems) + len(errors) == len(addresses):
+            reactor.stop()
+
+    for host, port in addresses:
+        get_poetry(host, port, get_poem, poem_failed)
+
     reactor.run()
-    print 'Got {} poems, runtime:{}'.format(len(addresses), time.time - start)
+    for poem in poems:
+        print poem
 
 
 if __name__ == '__main__':
