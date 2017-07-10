@@ -33,4 +33,23 @@ def got_results(res):
 # d.addCallback(got_results)
 # d1.callback('d1 result')
 # d2.callback('d2 result')
-defer.DeferredList([got_results('d1'), got_results('d2')])
+# defer.DeferredList([got_results('d1'), got_results('d2')])
+
+class A(object):
+    def test(self):
+        raise NotImplementedError
+
+
+class B(A):
+    pass
+
+
+class C(B):
+    def test(self):
+        print 'test'
+
+
+# b = B()
+# b.test()
+c = C()
+c.test()
